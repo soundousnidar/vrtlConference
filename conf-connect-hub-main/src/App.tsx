@@ -20,6 +20,8 @@ import Abstracts from './pages/Abstracts';
 import Forum from './pages/Forum';
 import CreateConference from './pages/CreateConference';
 import EditConference from './pages/EditConference';
+import Dashboard from "./pages/Dashboard";
+
 
 const queryClient = new QueryClient();
 
@@ -50,6 +52,7 @@ const App = () => (
             <Route path="/certificates" element={<Certificates />} />
             <Route path="/abstracts" element={<Abstracts />} />
             <Route path="/forum" element={<Forum />} />
+            <Route path="/dashboard/:id" element={<Dashboard />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Route>

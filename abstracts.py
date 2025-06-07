@@ -14,15 +14,20 @@ router = APIRouter()
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
-def get_current_user(token: str = Depends(oauth2_scheme)):
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
     try:
-        # Just verify the token is valid
         payload = jwt.decode(token, "123456789", algorithms=["HS256"])
-        if not payload.get("sub"):
+        user_id: str = payload.get("sub")
+        if user_id is None:
             raise HTTPException(status_code=401, detail="Token invalide")
-        return True
     except JWTError:
         raise HTTPException(status_code=401, detail="Token invalide")
+
+    user = db.query(User).filter(User.id == int(user_id)).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+    
+    return user
 
 @router.post("/submit-abstract")
 async def submit_abstract(

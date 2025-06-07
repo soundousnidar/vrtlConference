@@ -7,6 +7,7 @@ import os
 from typing import Optional
 import traceback
 from datetime import datetime
+from datetime import datetime, timezone 
 
 router = APIRouter()
 
@@ -98,7 +99,7 @@ def get_profile(current_user: User = Depends(get_current_user), db: Session = De
                 "deadline": conf.deadline.isoformat() if conf.deadline else None,
                 "venue": conf.venue,
                 "thematic": conf.thematic,
-                "status": "active" if conf.deadline and conf.deadline.date() > datetime.now().date() else "past"
+                "status": "active" if conf.deadline and conf.deadline > datetime.now().date() else "past"
             } for conf in current_user.organized_conferences]
         
         # Initialize conference_count if it's None

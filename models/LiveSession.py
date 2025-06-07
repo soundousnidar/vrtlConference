@@ -2,6 +2,9 @@ from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from database import Base
 from datetime import datetime
 
+from sqlalchemy.orm import relationship
+
+
 class LiveSession(Base):
     __tablename__ = "live_sessions"
 

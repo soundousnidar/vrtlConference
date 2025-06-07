@@ -18,6 +18,9 @@ import { conferenceService } from '@/services/conferenceService';
 import ReviewerInvitationsTable from '@/components/ReviewerInvitationsTable';
 import reviewerService from '@/services/reviewerService';
 import AbstractSubmissionModal from '@/components/AbstractSubmissionModal';
+import { BarChart } from "lucide-react";
+
+
 
 const UserProfile: React.FC = () => {
   const navigate = useNavigate();
@@ -484,6 +487,14 @@ const UserProfile: React.FC = () => {
                           <UserPlus className="h-4 w-4 mr-1" />
                           Inviter un reviewer
                         </Button>
+                         <Button
+        variant="outline"
+        size="sm"
+        onClick={() => window.location.href = `/dashboard/${conference.id}`}
+      >
+        <BarChart className="h-4 w-4 mr-1" />
+        Statistiques
+      </Button>
                       </div>
                     </div>
                   </CardHeader>

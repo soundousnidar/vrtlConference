@@ -11,6 +11,8 @@ from reviewers import router as review_router
 from conference import router as conference_router
 from profile import router as profile_router
 from database import Base, engine  # Ajout de l'import de Base et engine
+from certificates.routes import router as certificate_router
+
 
 # Créer les tables au démarrage
 Base.metadata.create_all(bind=engine)
@@ -49,6 +51,8 @@ app.include_router(conference_router, tags=["Conferences"])  # Remove the prefix
 app.include_router(abstracts_router, prefix="/abstracts", tags=["Abstracts"])
 app.include_router(review_router, prefix="/reviews", tags=["Reviews"])
 app.include_router(stats_router, prefix="/stats", tags=["Statistiques"])
+app.include_router(certificate_router, prefix="/certificates", tags=["Certificats"])
+
 
 # Custom OpenAPI schema for JWT
 def custom_openapi():

@@ -1,4 +1,4 @@
-import api from '@/services/api';
+import api from '@/lib/api';
 import type { User, Conference, Abstract } from '@/types/conference';
 
 export interface ProfileData {
@@ -66,5 +66,13 @@ export const profileService = {
       console.error('Error updating profile:', error);
       throw error;
     }
+  },
+
+  getRegistrations: async () => {
+    const token = localStorage.getItem('token');
+    if (!token) throw new Error('Vous devez être connecté');
+    const authToken = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+    const res = await api.get('/registrations/me');
+    return res.data;
   }
 }; 

@@ -3,6 +3,6 @@ from models.conferences import Conference, VenueEnum
 from models.reviewer_invitations import ReviewerInvitation, InvitationStatus
 from models.reviewers import Reviewer
 from models.reviews import Review
-from models.abstracts import Abstract
+from models.abstracts import Abstract, Author
 
 # Import all models here to ensure they are registered with SQLAlchemy 

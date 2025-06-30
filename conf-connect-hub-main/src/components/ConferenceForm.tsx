@@ -54,7 +54,9 @@ const ConferenceForm: React.FC<ConferenceFormProps> = ({
     const { name, value } = e.target;
     setFormState(prev => ({
       ...prev,
-      [name]: name === 'fees' ? parseFloat(value) : value
+      [name]: name === 'fees'
+        ? value === '' ? '' : parseFloat(value)
+        : value
     }));
   };
 
@@ -110,25 +112,14 @@ const ConferenceForm: React.FC<ConferenceFormProps> = ({
       }
       
       // Add validated data to FormData
-      Object.entries(processedData).forEach(([key, value]) => {
-        if (key === 'thematic') {
-          // Convert thematic to array and send as JSON string
-          const thematicArray = (value as string)
-            .split(',')
-            .map(t => t.trim())
-            .filter(t => t);
-          formData.append('thematic', JSON.stringify(thematicArray));
-        } else if (key === 'fees') {
-          // Ensure fees is sent as a string
-          formData.append('fees', value.toString());
-        } else if (key === 'venue') {
-          // Ensure venue is sent correctly
-          formData.append('venue', value.toString());
-        } else {
-          formData.append(key, value.toString());
-        }
-      });
-      
+      // Only send fields expected by the backend
+      formData.append('title', processedData.title);
+      formData.append('description', processedData.description);
+      formData.append('deadline', processedData.deadline);
+      formData.append('important_date', processedData.important_date);
+      formData.append('fees', processedData.fees.toString());
+      formData.append('venue', processedData.venue.toString());
+      formData.append('thematic', processedData.thematic);
       // Add image if selected
       if (selectedImage) {
         formData.append('image', selectedImage);
@@ -208,7 +199,7 @@ const ConferenceForm: React.FC<ConferenceFormProps> = ({
             type="number"
             min="0"
             step="0.01"
-            value={formState.fees}
+            value={typeof formState.fees === 'number' && !isNaN(formState.fees) ? formState.fees : ''}
             onChange={handleInputChange}
             required
           />

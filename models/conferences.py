@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Date, Float, DateTime, JSON, ForeignKey, Enum
+from sqlalchemy import Column, Integer, String, Date, Float, DateTime, JSON, ForeignKey, Enum, LargeBinary
 from sqlalchemy.orm import relationship
 from database import Base
 from datetime import datetime
@@ -20,12 +20,12 @@ class Conference(Base):
     fees = Column(Float, nullable=False)
     venue = Column(Enum(VenueEnum), nullable=False)
     thematic = Column(JSON, nullable=False)  # Store as JSON array
-    image = Column(String, nullable=True)
+    image = Column(LargeBinary, nullable=True)
     organizer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relation avec l'organisateur 
-    organizer = relationship("User", back_populates="organized_conferences")
+    organizer = relationship("User", back_populates="conferences")
     
     # Relation avec les abstracts
     abstracts = relationship("Abstract", back_populates="conference")

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useParams } from "react-router-dom";
 import InfoBox from "@/components/InfoBox";
 import {
   PieChart,
@@ -48,6 +49,7 @@ const renderCustomizedLabel = ({
 };
 
 const Dashboard: React.FC = () => {
+  const { id } = useParams();
   const [abstracts, setAbstracts] = useState(0);
   const [reviewers, setReviewers] = useState(0);
   const [participants, setParticipants] = useState(0);
@@ -61,56 +63,54 @@ const Dashboard: React.FC = () => {
   const [certReviewer, setCertReviewer] = useState(0);
   const [deadline, setDeadline] = useState("2025-06-10");
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const token = localStorage.getItem("token");
+        const response = await axios.get(`http://127.0.0.1:8001/stats/${id}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
 
-  
+        setAbstracts(response.data.abstracts);
+        setReviewers(response.data.reviewers);
+        setParticipants(response.data.participants);
+        setOralAccepted(response.data.oral_accepted);
+        setPosterAccepted(response.data.poster_accepted);
+        setRejected(response.data.rejected);
+        setSessionsTotal(response.data.sessions_total);
+        setSessionsToday(response.data.sessions_today);
+        setCertPart(response.data.cert_participants);
+        setCertSpeaker(response.data.cert_speakers);
+        setCertReviewer(response.data.cert_reviewers);
 
-useEffect(() => {
-  const fetchStats = async () => {
-    try {
-      const token = localStorage.getItem("token"); // 🔐 Récupère le token JWT
-
-      const response = await axios.get("http://127.0.0.1:8000//stats", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      console.log("✅ Données reçues du backend:", response.data);
-
-      setAbstracts(response.data.abstracts);
-      setReviewers(response.data.reviewers);
-      setParticipants(response.data.participants);
-      setOralAccepted(response.data.oral_accepted);
-      setPosterAccepted(response.data.poster_accepted);
-      setRejected(response.data.rejected);
-      setSessionsTotal(response.data.sessions_total);
-      setSessionsToday(response.data.sessions_today);
-      setCertPart(response.data.cert_participants);
-      setCertSpeaker(response.data.cert_speakers);
-      setCertReviewer(response.data.cert_reviewers);
-
-      if (response.data.deadline) {
-        setDeadline(response.data.deadline);
+        if (response.data.deadline) {
+          setDeadline(response.data.deadline);
+        }
+        setError(null);
+      } catch (error: any) {
+        if (error.response?.status === 401) {
+          alert("⛔️ Session expirée ou non autorisée. Veuillez vous reconnecter.");
+          window.location.href = "/login";
+        } else if (error.response?.status === 403) {
+          setError("⛔️ Vous n'êtes pas autorisé à consulter les statistiques de cette conférence.");
+        } else if (error.response?.status === 404) {
+          setError("❌ Conférence non trouvée ou vous n'êtes pas l'organisateur.");
+        } else {
+          setError("❌ Erreur lors de la récupération des statistiques.");
+        }
+      } finally {
+        setLoading(false);
       }
-    } catch (error: any) {
-      if (error.response?.status === 401) {
-        alert("⛔️ Session expirée ou non autorisée. Veuillez vous reconnecter.");
-        window.location.href = "/login"; // ou utiliser `navigate()` si tu as React Router
-      } else {
-        console.error("❌ Erreur lors de la récupération des statistiques :", error);
-      }
-    } finally {
-      setLoading(false);
+    };
+
+    if (id) {
+      fetchStats();
     }
-  };
-
-  fetchStats();
-}, []);
-
-
-
-
+  }, [id]);
 
   const daysLeft = Math.ceil(
     (new Date(deadline).getTime() - new Date().getTime()) / (1000 * 3600 * 24)
@@ -195,7 +195,13 @@ useEffect(() => {
         </div>
       </div>
 
-      {daysLeft <= 3 && (
+      {error && (
+        <div className="bg-red-100 text-red-800 border-l-4 border-red-500 p-4 rounded-xl shadow print:hidden">
+          {error}
+        </div>
+      )}
+
+      {!error && daysLeft <= 3 && (
         <div className="bg-red-100 text-red-800 border-l-4 border-red-500 p-4 rounded-xl shadow print:hidden">
           ⚠️ Attention : La deadline approche ! Il reste <strong>{daysLeft}</strong> jour{daysLeft > 1 ? "s" : ""}.
         </div>
@@ -207,6 +213,7 @@ useEffect(() => {
           <p className="text-gray-600">Chargement des données...</p>
         </div>
       ) : (
+        !error && (
         <>
           <div className="grid grid-cols-3 gap-6">
             <InfoBox title="Abstracts soumis" value={abstracts} color="#3b82f6" />
@@ -222,7 +229,7 @@ useEffect(() => {
 
           <div className="grid grid-cols-3 gap-6 mt-4">
             <InfoBox title="Sessions programmées" value={sessionsTotal} color="#f59e0b" />
-            <InfoBox title="Sessions aujourd’hui" value={sessionsToday} color="#84cc16" />
+            <InfoBox title="Sessions aujourd'hui" value={sessionsToday} color="#84cc16" />
             <InfoBox title="Certificats Participants" value={certPart} color="#6366f1" />
           </div>
 
@@ -286,6 +293,7 @@ useEffect(() => {
             </ResponsiveContainer>
           </div>
         </>
+        )
       )}
     </div>
   );

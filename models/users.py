@@ -26,7 +26,7 @@ class User(Base):
     conference_count = Column(Integer, default=0)  # Track number of conferences created
 
     # Relationships
-    submitted_abstracts = relationship("Abstract", back_populates="author")
+    submitted_abstracts = relationship("Abstract", back_populates="user")
     reviews = relationship("Review", back_populates="reviewer")
     conferences = relationship("Conference", back_populates="organizer")
     sent_invitations = relationship(
@@ -40,4 +40,8 @@ class User(Base):
         back_populates="invitee"
     )
     reviewer_roles = relationship("Reviewer", back_populates="user")
-    organized_conferences = relationship("Conference", back_populates="organizer")
+    assigned_abstracts = relationship(
+        "Abstract",
+        secondary="abstract_reviewer_assignment",
+        back_populates="assigned_reviewers"
+    )

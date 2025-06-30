@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useParams } from "react-router-dom";
 import Layout from "./components/Layout";
 import AuthLayout from "./components/AuthLayout";
 import Index from "./pages/Index";
@@ -21,6 +21,12 @@ import Forum from './pages/Forum';
 import CreateConference from './pages/CreateConference';
 import EditConference from './pages/EditConference';
 import Dashboard from "./pages/Dashboard";
+import InvitationAccepted from './pages/InvitationAccepted';
+import AcceptInvitation from './pages/AcceptInvitation';
+import ReviewerConferenceAbstracts from './pages/ReviewerConferenceAbstracts';
+import AbstractReviews from './pages/AbstractReviews';
+import LiveStreamRoom from './components/LiveStreamRoom';
+import PushTestButton from './components/PushTestButton';
 
 
 const queryClient = new QueryClient();
@@ -30,6 +36,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
+      <PushTestButton />
       <BrowserRouter>
         <Routes>
           {/* Auth routes */}
@@ -44,6 +51,7 @@ const App = () => (
             <Route path="/conferences" element={<ConferencesPage />} />
             <Route path="/conferences/create" element={<CreateConference />} />
             <Route path="/conferences/edit/:id" element={<EditConference />} />
+            <Route path="/conferences/:id" element={<ConferenceDetails />} />
             <Route path="/conference/:id" element={<ConferenceDetails />} />
             <Route path="/profile" element={<UserProfile />} />
             <Route path="/reviewer" element={<ReviewerDashboard />} />
@@ -53,6 +61,13 @@ const App = () => (
             <Route path="/abstracts" element={<Abstracts />} />
             <Route path="/forum" element={<Forum />} />
             <Route path="/dashboard/:id" element={<Dashboard />} />
+            <Route path="/invitation-accepted" element={<InvitationAccepted />} />
+            <Route path="/accept-invitation/:token" element={<AcceptInvitation />} />
+            <Route path="/reviewer/conference/:conferenceId/abstracts" element={<ReviewerConferenceAbstracts />} />
+            <Route path="/abstracts/:abstractId/reviews" element={<AbstractReviews />} />
+            <Route path="/conferences/:id/live" element={
+              <LiveStreamRoomWrapper />
+            } />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Route>
@@ -61,5 +76,12 @@ const App = () => (
     </TooltipProvider>
   </QueryClientProvider>
 );
+
+function LiveStreamRoomWrapper() {
+  const { id } = useParams();
+  const userStr = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+  const user = userStr ? JSON.parse(userStr) : { fullname: 'Utilisateur' };
+  return <LiveStreamRoom conferenceId={Number(id)} user={user} />;
+}
 
 export default App;

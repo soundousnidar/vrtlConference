@@ -1,4 +1,4 @@
-import api from '@/services/api';
+import api from '@/lib/api';
 
 const reviewerService = {
   // Get all reviewer invitations for a conference
@@ -52,6 +52,60 @@ const reviewerService = {
       return response.data;
     } catch (error) {
       console.error('Error rejecting invitation:', error);
+      throw error;
+    }
+  },
+
+  // Submit a review for an abstract
+  submitReview: async (abstractId: number, comment: string, decision: 'ACCEPTED' | 'REJECTED') => {
+    try {
+      const response = await api.post('/reviews/', {
+        abstract_id: abstractId,
+        comment,
+        decision
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error submitting review:', error);
+      throw error;
+    }
+  },
+
+  // Check if current user is reviewer for a conference
+  isReviewerForConference: async (conferenceId: number) => {
+    try {
+      const response = await api.get(`/conferences/${conferenceId}/reviewers`);
+      const userStr = localStorage.getItem('user');
+      if (!userStr) return false;
+      const user = JSON.parse(userStr);
+      return response.data.some((r: any) => r.id === user.id);
+    } catch (error) {
+      console.error('Error checking reviewer status:', error);
+      return false;
+    }
+  },
+
+  // Get my review for an abstract
+  getMyReviewForAbstract: async (abstractId: number) => {
+    try {
+      const response = await api.get(`/reviewer/my-reviews?abstract_id=${abstractId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching my review for abstract:', error);
+      throw error;
+    }
+  },
+
+  // Update a review
+  updateReview: async (reviewId: number, comment: string, decision: 'ACCEPTED' | 'REJECTED') => {
+    try {
+      const response = await api.put(`/reviews/${reviewId}`, {
+        comment,
+        decision
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error updating review:', error);
       throw error;
     }
   }

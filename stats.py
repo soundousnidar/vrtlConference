@@ -3,11 +3,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
 from datetime import date
 from database import get_db
-from models.abstracts import Abstract, AbstractStatus
+from models.abstracts import Abstract, AbstractStatus, PresentationType
 from models.users import User, UserRole
 from models.conferences import Conference
 from models.certificate import Certificate
 from models.LiveSession import LiveSession
+from models.reviewers import Reviewer
+from models.ConferenceParticipant import ConferenceParticipant
+from models.registration import Registration
 
 # Import pour récupérer l'utilisateur connecté
 from abstracts import get_current_user
@@ -33,14 +36,19 @@ async def get_stats(
 
         # Ensuite, garde le même code pour les statistiques :
         abstracts_count = db.query(Abstract).filter(Abstract.conference_id == conference_id).count()
-        reviewers_count = db.query(User).filter(User.role == UserRole.REVIEWER).count()
-        participants_count = db.query(User).filter(User.role == UserRole.AUTHOR).count()
+        reviewers_count = db.query(Reviewer).filter(Reviewer.conference_id == conference_id).count()
+        participants_count = db.query(Registration).filter(Registration.conference_id == conference_id, Registration.status == 'paid').count()
 
         accepted_orals = db.query(Abstract).filter(
             Abstract.status == AbstractStatus.accepted,
-            Abstract.conference_id == conference_id
+            Abstract.conference_id == conference_id,
+            Abstract.presentation_type == PresentationType.ORAL
         ).count()
-
+        poster_accepted = db.query(Abstract).filter(
+            Abstract.status == AbstractStatus.accepted,
+            Abstract.conference_id == conference_id,
+            Abstract.presentation_type == PresentationType.E_POSTER
+        ).count()
         rejected = db.query(Abstract).filter(
             Abstract.status == AbstractStatus.rejected,
             Abstract.conference_id == conference_id
@@ -74,7 +82,7 @@ async def get_stats(
             "reviewers": reviewers_count,
             "participants": participants_count,
             "oral_accepted": accepted_orals,
-            "poster_accepted": 0,
+            "poster_accepted": poster_accepted,
             "rejected": rejected,
             "invitations": 0,
             "cert_participants": cert_participants,

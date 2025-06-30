@@ -27,7 +27,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 
-@router.post("/login")
+@router.post("/login", operation_id="login_authn")
 async def login(
     email: str = Form(...),
     password: str = Form(...),

@@ -1,9 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Form, UploadFile, File, security
 from sqlalchemy.orm import Session
-from typing import List, Optional
-from datetime import date, datetime
+from sqlalchemy import or_, and_
+from models import conferences, abstracts, users
 from models.conferences import Conference, VenueEnum
+from models.abstracts import Abstract, AbstractStatus, PresentationType
 from models.users import User, UserRole
+from models.reviewers import Reviewer
+from models.reviewer_invitations import ReviewerInvitation, InvitationStatus
 from database import get_db
 from auth import get_current_user
 from sqlalchemy import select
@@ -12,10 +15,14 @@ import traceback
 import base64
 import json
 import os
-from models.reviewer_invitations import ReviewerInvitation, InvitationStatus
-from models.reviewers import Reviewer
 from utils.email_sender import EmailSender
 import secrets
+from fastapi.responses import RedirectResponse
+from passlib.context import CryptContext
+from datetime import date, datetime
+from typing import List, Optional
+import string
+import imghdr
 
 router = APIRouter()
 
@@ -93,6 +100,7 @@ def get_all_conferences(db: Session = Depends(get_db)):
 @router.post("/conferences/")
 async def create_conference(
     title: str = Form(...),
+    description: str = Form(""),
     deadline: date = Form(...),
     important_date: date = Form(...),
     fees: float = Form(...),
@@ -146,6 +154,7 @@ async def create_conference(
         try:
             conference = Conference(
                 title=title,
+                description=description,
                 deadline=deadline,
                 important_date=important_date,
                 fees=fees,
@@ -165,6 +174,7 @@ async def create_conference(
             conf_dict = {
                 "id": conference.id,
                 "title": conference.title,
+                "description": conference.description or "Pas de description disponible",
                 "deadline": conference.deadline.isoformat(),
                 "important_date": conference.important_date.isoformat(),
                 "fees": conference.fees,
@@ -212,6 +222,9 @@ def get_conference(conference_id: int, db: Session = Depends(get_db)):
             raise HTTPException(status_code=404, detail="Organisateur introuvable")
         
         # Convert the conference object to a dictionary
+        organizer_name = f"{organizer.first_name or ''} {organizer.last_name or ''}".strip() if organizer else ""
+        if not organizer_name and organizer and hasattr(organizer, 'fullname'):
+            organizer_name = organizer.fullname
         conf_dict = {
             "id": conference.id,
             "title": conference.title,
@@ -222,7 +235,7 @@ def get_conference(conference_id: int, db: Session = Depends(get_db)):
             "venue": conference.venue,
             "thematic": conference.thematic if isinstance(conference.thematic, list) else [conference.thematic],
             "organizer_id": conference.organizer_id,
-            "organizer_name": f"{organizer.first_name} {organizer.last_name}",
+            "organizer_name": organizer_name,
             "created_at": conference.created_at.isoformat() if conference.created_at else None,
         }
         
@@ -248,30 +261,44 @@ def get_conference(conference_id: int, db: Session = Depends(get_db)):
 def update_conference(
     conference_id: int,
     title: str = Form(...),
+    description: str = Form(""),
     deadline: date = Form(...),
     important_date: date = Form(...),
     fees: float = Form(...),
     venue: VenueEnum = Form(...),
-    thematics: List[str] = Form(...),
+    thematic: str = Form(...),
     image: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
+    # Parse thematic string to list (like in create_conference)
+    try:
+        try:
+            thematic_list = json.loads(thematic)
+        except json.JSONDecodeError:
+            thematic_list = [t.strip() for t in thematic.split(',') if t.strip()]
+        if not isinstance(thematic_list, list):
+            raise ValueError("Le champ thématique doit être une liste")
+        if not thematic_list:
+            raise ValueError("Au moins une thématique est requise")
+    except Exception as e:
+        raise HTTPException(status_code=422, detail="Format de thématique invalide. Veuillez fournir une liste de thèmes séparés par des virgules.")
+
     conference = db.query(Conference).filter(Conference.id == conference_id).first()
     if not conference:
         raise HTTPException(status_code=404, detail=CONFERENCE_NOT_FOUND_MSG)
 
-    # Read image data if provided
     if image:
         image_data = image.file.read()
         conference.image = image_data
 
     conference.title = title
+    conference.description = description
     conference.deadline = deadline
     conference.important_date = important_date
     conference.fees = fees
     conference.venue = venue
-    conference.thematic = thematics
+    conference.thematic = thematic_list
 
     db.commit()
     db.refresh(conference)
@@ -279,7 +306,9 @@ def update_conference(
     # Convert the conference object to include base64 image if present
     conf_dict = conference.__dict__.copy()
     if conference.image:
-        conf_dict["image_url"] = f"data:image/jpeg;base64,{base64.b64encode(conference.image).decode('utf-8')}"
+        detected_type = imghdr.what(None, h=conference.image)
+        mime_type = f"image/{detected_type}" if detected_type else "image/jpeg"
+        conf_dict["image_url"] = f"data:{mime_type};base64,{base64.b64encode(conference.image).decode('utf-8')}"
     return conf_dict
 
 # Supprimer une conférence
@@ -292,121 +321,6 @@ def delete_conference(conference_id: int, db: Session = Depends(get_db), current
     db.delete(conference)
     db.commit()
     return {"message": "Conférence supprimée avec succès"}
-
-@router.post("/conferences/{conference_id}/invite-reviewers")
-async def invite_reviewers(
-    conference_id: int,
-    reviewer_emails: List[str],
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
-):
-    try:
-        # Get the conference
-        conference = db.query(Conference).filter(Conference.id == conference_id).first()
-        if not conference:
-            raise HTTPException(status_code=404, detail=CONFERENCE_NOT_FOUND_MSG)
-            
-        # Check if the current user is the organizer
-        if conference.organizer_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Vous n'êtes pas l'organisateur de cette conférence")
-            
-        # Initialize email sender
-        email_sender = EmailSender()
-        results = {
-            "success": [],
-            "failed": [],
-            "already_invited": []
-        }
-        
-        for email in reviewer_emails:
-            try:
-                # Check if user exists
-                user = db.query(User).filter(User.email == email).first()
-                if not user:
-                    # Create new user with reviewer role
-                    user = User(
-                        email=email,
-                        role=UserRole.reviewer,
-                        is_active=False,  # They need to accept invitation to activate
-                        fullname="Pending Reviewer"
-                    )
-                    db.add(user)
-                    db.flush()  # Get the user ID without committing
-                
-                # Check if already invited
-                existing_invitation = db.query(ReviewerInvitation).filter(
-                    ReviewerInvitation.conference_id == conference_id,
-                    ReviewerInvitation.invitee_id == user.id
-                ).first()
-                
-                if existing_invitation:
-                    results["already_invited"].append(email)
-                    continue
-                
-                # Create invitation
-                invitation = ReviewerInvitation(
-                    invited_by_id=current_user.id,
-                    invitee_id=user.id,
-                    conference_id=conference_id,
-                    status=InvitationStatus.pending
-                )
-                db.add(invitation)
-                
-                # Generate invitation link
-                invitation_link = f"{os.getenv('FRONTEND_URL', 'http://localhost:3000')}/reviewer/invitation/{invitation.id}"
-                
-                # Send invitation email
-                email_sender.send_reviewer_invitation(
-                    to_email=email,
-                    conference_title=conference.title,
-                    invitation_link=invitation_link
-                )
-                
-                results["success"].append(email)
-                
-            except Exception as e:
-                print(f"Error inviting reviewer {email}: {str(e)}")
-                results["failed"].append(email)
-                continue
-        
-        db.commit()
-        return results
-        
-    except Exception as e:
-        db.rollback()
-        print(f"Error in invite_reviewers: {str(e)}")
-        print(traceback.format_exc())
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error inviting reviewers: {str(e)}"
-        )
-
-@router.get("/reviewer-invitations")
-async def get_reviewer_invitations(
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user)
-):
-    try:
-        invitations = db.query(ReviewerInvitation).filter(
-            ReviewerInvitation.invitee_id == current_user.id
-        ).all()
-        
-        return [{
-            "id": inv.id,
-            "conference_id": inv.conference_id,
-            "conference_title": inv.conference.title,
-            "invited_by": f"{inv.invited_by.first_name} {inv.invited_by.last_name}",
-            "status": inv.status,
-            "created_at": inv.created_at.isoformat()
-        } for inv in invitations]
-        
-    except Exception as e:
-        print(f"Error getting reviewer invitations: {str(e)}")
-        print(traceback.format_exc())
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error getting invitations: {str(e)}"
-        )
 
 @router.post("/conferences/{conference_id}/invite-reviewer")
 async def invite_reviewer(
@@ -444,27 +358,53 @@ async def invite_reviewer(
                 detail="Cet utilisateur a déjà été invité à cette conférence"
             )
 
+        # Recherche ou création de l'utilisateur par email
+        invitee_user = db.query(User).filter(User.email == email).first()
+        print(f"=== DEBUG: Looking for user with email: {email} ===")
+        print(f"User found: {invitee_user is not None}")
+        
+        if not invitee_user:
+            print(f"Creating new user for email: {email}")
+            # Créer un nouvel utilisateur avec un mot de passe temporaire
+            temp_password = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(12))
+            pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+            
+            invitee_user = User(
+                email=email,
+                fullname=email.split('@')[0],  # Utilise la partie avant @ comme nom
+                hashed_password=pwd_context.hash(temp_password),
+                role=UserRole.REVIEWER
+            )
+            db.add(invitee_user)
+            db.flush()  # Pour obtenir l'ID sans commit
+            print(f"Created new user for invitation: {invitee_user.id}")
+        else:
+            print(f"User already exists with ID: {invitee_user.id}")
+
         # Generate unique tokens for accept/reject
         accept_token = secrets.token_urlsafe(32)
         reject_token = secrets.token_urlsafe(32)
 
-        # Create invitation
+        # Create invitation avec invitee_id TOUJOURS renseigné
         invitation = ReviewerInvitation(
             conference_id=conference_id,
             invited_by_id=current_user.id,
+            invitee_id=invitee_user.id,  # ✅ TOUJOURS renseigné maintenant !
             invitee_email=email,
             accept_token=accept_token,
             reject_token=reject_token,
             status=InvitationStatus.pending
         )
         
+        print(f"=== DEBUG: Creating invitation with invitee_id: {invitee_user.id} ===")
+        
         db.add(invitation)
         db.flush()  # Get the invitation ID without committing
 
         # Prepare email content
-        frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:3000')
-        accept_url = f"{frontend_url}/accept-invitation/{accept_token}"
-        reject_url = f"{frontend_url}/reject-invitation/{reject_token}"
+        frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:8080')
+        accept_url = f"{frontend_url}/accept-invitation/{accept_token}?conference_id={conference_id}"
+        reject_url = f"{frontend_url}/reject-invitation/{reject_token}?conference_id={conference_id}"
         
         email_subject = f"Invitation à évaluer la conférence : {conference.title}"
         email_body = f"""
@@ -515,9 +455,9 @@ async def invite_reviewer(
         email_sender = EmailSender()
         try:
             # Generate URLs for accept/reject
-            frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:3000')
-            accept_url = f"{frontend_url}/accept-invitation/{accept_token}"
-            reject_url = f"{frontend_url}/reject-invitation/{reject_token}"
+            frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:8080')
+            accept_url = f"{frontend_url}/accept-invitation/{accept_token}?conference_id={conference_id}"
+            reject_url = f"{frontend_url}/reject-invitation/{reject_token}?conference_id={conference_id}"
             
             # Send invitation email
             email_sender.send_reviewer_invitation(
@@ -556,110 +496,68 @@ async def invite_reviewer(
         )
 
 @router.post("/reviewer-invitations/accept/{token}")
-async def accept_reviewer_invitation(
-    token: str,
-    db: Session = Depends(get_db)
-):
+async def accept_reviewer_invitation_redirect(token: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     try:
-        # Find invitation by accept token
         invitation = db.query(ReviewerInvitation).filter(
             ReviewerInvitation.accept_token == token,
             ReviewerInvitation.status == InvitationStatus.pending
         ).first()
 
         if not invitation:
-            raise HTTPException(status_code=404, detail="Invitation invalide ou expirée")
+            frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:8080')
+            return RedirectResponse(url=f"{frontend_url}/invitation-accepted?status=error")
+
+        # Vérifier que l'utilisateur connecté correspond à l'invitation
+        if invitation.invitee_id is None:
+            # Si invitee_id est NULL, on le lie à l'utilisateur connecté
+            if invitation.invitee_email != current_user.email:
+                frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:8080')
+                return RedirectResponse(url=f"{frontend_url}/invitation-accepted?status=error")
+            invitation.invitee_id = current_user.id
+        elif invitation.invitee_id != current_user.id:
+            frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:8080')
+            return RedirectResponse(url=f"{frontend_url}/invitation-accepted?status=error")
 
         # Update invitation status
         invitation.status = InvitationStatus.accepted
-        
-        # Send confirmation email to both reviewer and organizer
-        email_sender = EmailSender()
-        conference = db.query(Conference).filter(Conference.id == invitation.conference_id).first()
-        organizer = db.query(User).filter(User.id == invitation.invited_by_id).first()
-        
-        if conference and organizer:
-            # Email to reviewer
-            reviewer_subject = f"Confirmation d'acceptation - {conference.title}"
-            reviewer_body = f"""
-            Bonjour,
-
-            Vous avez accepté l'invitation pour être reviewer de la conférence "{conference.title}".
-            
-            Pour commencer à évaluer les abstracts, veuillez créer un compte ou vous connecter sur notre plateforme :
-            {os.getenv('FRONTEND_URL', 'http://localhost:3000')}/register
-
-            Cordialement,
-            L'équipe de la conférence
-            """
-            
-            # Email to organizer
-            organizer_subject = f"Un reviewer a accepté votre invitation - {conference.title}"
-            organizer_body = f"""
-            Bonjour {organizer.first_name},
-
-            {invitation.invitee_email} a accepté votre invitation pour être reviewer de la conférence "{conference.title}".
-            
-            Vous pouvez suivre le statut des invitations dans votre tableau de bord.
-
-            Cordialement,
-            L'équipe de la conférence
-            """
-            
-            try:
-                await email_sender.send_email(
-                    to_email=invitation.invitee_email,
-                    subject=reviewer_subject,
-                    body=reviewer_body
-                )
-                await email_sender.send_email(
-                    to_email=organizer.email,
-                    subject=organizer_subject,
-                    body=organizer_body
-                )
-            except Exception as email_error:
-                print(f"Error sending confirmation emails: {str(email_error)}")
-        
         db.commit()
-        return {"message": "Invitation acceptée avec succès"}
 
+        # Ajoute le reviewer à la table Reviewer si ce n'est pas déjà fait
+        existing_reviewer = db.query(Reviewer).filter_by(user_id=invitation.invitee_id, conference_id=invitation.conference_id).first()
+        if not existing_reviewer:
+            reviewer = Reviewer(user_id=invitation.invitee_id, conference_id=invitation.conference_id)
+            db.add(reviewer)
+            db.commit()
+
+        frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:8080')
+        return RedirectResponse(url=f"{frontend_url}/invitation-accepted?status=success")
     except Exception as e:
         db.rollback()
-        print(f"Error accepting invitation: {str(e)}")
-        print(traceback.format_exc())
-        raise HTTPException(
-            status_code=500,
-            detail=f"Erreur lors de l'acceptation de l'invitation: {str(e)}"
-        )
+        frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:8080')
+        return RedirectResponse(url=f"{frontend_url}/invitation-accepted?status=error")
 
-@router.post("/reviewer-invitations/reject/{token}")
-async def reject_reviewer_invitation(
-    token: str,
-    db: Session = Depends(get_db)
-):
+@router.get("/reviewer-invitations/reject/{token}")
+async def reject_reviewer_invitation_redirect(token: str, db: Session = Depends(get_db)):
     try:
-        # Find invitation by reject token
         invitation = db.query(ReviewerInvitation).filter(
             ReviewerInvitation.reject_token == token,
             ReviewerInvitation.status == InvitationStatus.pending
         ).first()
 
         if not invitation:
-            raise HTTPException(status_code=404, detail="Invitation invalide ou expirée")
+            frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:8080')
+            return RedirectResponse(url=f"{frontend_url}/invitation-accepted?status=error")
 
         # Update invitation status
         invitation.status = InvitationStatus.rejected
         db.commit()
 
-        return {"message": "Invitation refusée"}
-
+        frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:8080')
+        return RedirectResponse(url=f"{frontend_url}/invitation-accepted?status=rejected")
     except Exception as e:
-        print(f"Error rejecting invitation: {str(e)}")
-        print(traceback.format_exc())
-        raise HTTPException(
-            status_code=500,
-            detail=f"Erreur lors du refus de l'invitation: {str(e)}"
-        )
+        db.rollback()
+        frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:8080')
+        return RedirectResponse(url=f"{frontend_url}/invitation-accepted?status=error")
 
 @router.get("/reviewer-invitations/sent")
 async def get_sent_invitations(
@@ -694,8 +592,16 @@ async def get_received_invitations(
     current_user: User = Depends(get_current_user)
 ):
     try:
+        # Chercher les invitations où invitee_id correspond à l'utilisateur connecté
+        # OU où invitee_email correspond à l'email de l'utilisateur connecté (pour les anciennes invitations)
         invitations = db.query(ReviewerInvitation).filter(
-            ReviewerInvitation.invitee_id == current_user.id
+            or_(
+                ReviewerInvitation.invitee_id == current_user.id,
+                and_(
+                    ReviewerInvitation.invitee_email == current_user.email,
+                    ReviewerInvitation.invitee_id.is_(None)
+                )
+            )
         ).all()
         
         return [{

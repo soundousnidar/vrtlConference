@@ -103,7 +103,6 @@ const Footer = ({ className }: FooterProps) => {
             </div>
           </div>
         </div>
-
         {/* Barre de copyright */}
         <div className="mt-8 pt-4 border-t border-gray-200">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">

@@ -51,7 +51,7 @@ const Login = () => {
     try {
       console.log('Sending auth request...'); // Debug log
       const response = await fetch(
-        isRegister ? "http://localhost:8000/auth/register" : "http://localhost:8000/auth/login",
+        isRegister ? "http://localhost:8001/auth/register" : "http://localhost:8001/auth/login",
         {
           method: "POST",
           body: formData,
@@ -66,13 +66,9 @@ const Login = () => {
       }
   
       if (data.access_token) {
-        // Store the token with Bearer prefix if it's not already there
-        const token = data.access_token.startsWith('Bearer ') 
-          ? data.access_token 
-          : `Bearer ${data.access_token}`;
-        
-        console.log('Storing token:', token); // Debug log
-        localStorage.setItem("token", token);
+        // Store ONLY the raw access_token (no Bearer prefix)
+        localStorage.setItem("token", data.access_token);
+        localStorage.removeItem("access_token");
         localStorage.setItem("user", JSON.stringify(data.user));
         
         toast({
@@ -83,8 +79,15 @@ const Login = () => {
         });
 
         // Redirect to the intended page or home
-        const intendedPath = location.state?.from || '/';
-        navigate(intendedPath, { replace: true });
+        const params = new URLSearchParams(location.search);
+        const conferenceId = params.get('conference_id');
+        if (conferenceId) {
+          navigate(`/reviewer/conference/${conferenceId}/abstracts`, { replace: true });
+        } else {
+          const intendedPath = location.state?.from || '/';
+          navigate(intendedPath, { replace: true });
+        }
+        window.location.reload();
       }
     } catch (error: any) {
       console.error("Erreur d'authentification:", error); // Debug log
@@ -114,8 +117,7 @@ const Login = () => {
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
-      
-      <main className="flex-grow py-4">
+      <main className="flex-1 py-4">
         <div className="container mx-auto px-4 max-w-md">
           {/* Back to home link */}
           <Link to="/" className="inline-flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors mb-4">
@@ -302,8 +304,7 @@ const Login = () => {
           </div>
         </div>
       </main>
-
-      <Footer className="mt-auto py-4" />
+      <Footer />
     </div>
   );
 };

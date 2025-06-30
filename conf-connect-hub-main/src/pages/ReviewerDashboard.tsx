@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -6,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Star, FileText, Clock, CheckCircle } from 'lucide-react';
+import { FileText, Clock, CheckCircle } from 'lucide-react';
 import { Abstract, AbstractStatus } from '@/types/conference';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
@@ -86,24 +85,9 @@ interface ReviewModalProps {
 }
 
 const ReviewModal: React.FC<ReviewModalProps> = ({ abstract, isOpen, onClose, onSubmit }) => {
-  const [rating, setRating] = useState(0);
-  const [hoveredRating, setHoveredRating] = useState(0);
   const [comment, setComment] = useState('');
 
-  const handleStarClick = (value: number) => {
-    setRating(value);
-  };
-
   const handleSubmit = () => {
-    if (rating === 0) {
-      toast({
-        title: "Erreur",
-        description: "Veuillez attribuer une note.",
-        variant: "destructive"
-      });
-      return;
-    }
-
     if (!comment.trim()) {
       toast({
         title: "Erreur",
@@ -113,8 +97,7 @@ const ReviewModal: React.FC<ReviewModalProps> = ({ abstract, isOpen, onClose, on
       return;
     }
 
-    onSubmit(rating, comment);
-    setRating(0);
+    onSubmit(0, comment);
     setComment('');
     onClose();
   };
@@ -171,33 +154,6 @@ const ReviewModal: React.FC<ReviewModalProps> = ({ abstract, isOpen, onClose, on
 
           {/* Formulaire de révision */}
           <div className="space-y-4 border-t pt-6">
-            <div>
-              <Label className="text-base font-medium">Évaluation *</Label>
-              <div className="flex items-center gap-1 mt-2">
-                {[1, 2, 3, 4, 5].map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => handleStarClick(value)}
-                    onMouseEnter={() => setHoveredRating(value)}
-                    onMouseLeave={() => setHoveredRating(0)}
-                    className="text-2xl hover:scale-110 transition-transform"
-                  >
-                    <Star
-                      className={`w-8 h-8 ${
-                        value <= (hoveredRating || rating)
-                          ? 'text-yellow-400 fill-yellow-400'
-                          : 'text-gray-300'
-                      }`}
-                    />
-                  </button>
-                ))}
-                <span className="ml-2 text-sm text-muted-foreground">
-                  {rating > 0 && `${rating}/5`}
-                </span>
-              </div>
-            </div>
-
             <div>
               <Label htmlFor="comment" className="text-base font-medium">
                 Commentaires et suggestions *

@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-// In development, use the Vite proxy
-const API_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:8000');
+// Always use the backend API URL
+const API_URL = 'http://localhost:8001';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -26,13 +26,9 @@ api.interceptors.request.use(
       // Make sure we're using the correct format for the Authorization header
       const authToken = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
       config.headers.Authorization = authToken;
-      console.log('Request with token:', {
-        url: config.url,
-        method: config.method,
-        token: authToken
-      }); // Debug log
+      console.log('[DEBUG] Sending request with Authorization:', authToken, 'to', config.url);
     } else {
-      console.log('No token found in localStorage'); // Debug log
+      console.log('[DEBUG] No token found in localStorage for request to', config.url);
     }
     
     // Don't set Content-Type for FormData
@@ -66,7 +62,7 @@ api.interceptors.response.use(
     }); // Debug log
     
     if (error.response?.status === 401) {
-      console.log('Unauthorized access detected, clearing credentials...'); // Debug log
+      console.log('[DEBUG] 401 Unauthorized received for', error.config?.url);
       // Handle unauthorized access
       localStorage.removeItem('token');
       localStorage.removeItem('user');

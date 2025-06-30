@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from database import get_db
 from models.users import User
 from jose import JWTError, jwt
@@ -8,6 +8,8 @@ from typing import Optional
 import traceback
 from datetime import datetime
 from datetime import datetime, timezone 
+from models.reviews import Review
+from models.abstracts import Abstract
 
 router = APIRouter()
 
@@ -72,27 +74,49 @@ def get_profile(current_user: User = Depends(get_current_user), db: Session = De
     try:
         print(f"Getting profile for user: {current_user.email}")  # Debug log
         
-        # Get user's abstracts and reviews with proper serialization
+        # Force le chargement des reviews faites par l'utilisateur et leurs relations
+        user_with_reviews = db.query(User).options(
+            joinedload(User.reviews).joinedload(Review.abstract).joinedload(Abstract.conference)
+        ).filter(User.id == current_user.id).first()
+
+        # Reviews FAITES par l'utilisateur
+        reviews = []
+        for review in user_with_reviews.reviews:
+            abstract = review.abstract
+            conference = abstract.conference if abstract else None
+            reviews.append({
+                "id": review.id,
+                "abstract_id": review.abstract_id,
+                "decision": review.decision,
+                "comment": review.comment,
+                "rating": getattr(review, "rating", None),
+                "abstract": {
+                    "id": abstract.id if abstract else None,
+                    "title": abstract.title if abstract else None,
+                    "conference": {
+                        "id": conference.id if conference else None,
+                        "title": conference.title if conference else None
+                    } if conference else None
+                } if abstract else None
+            })
+
+        # Abstracts soumis par l'utilisateur
         abstracts = [{
             "id": abstract.id,
             "title": abstract.title,
             "summary": abstract.summary,
             "keywords": abstract.keywords,
             "status": abstract.status,
-            "submitted_at": abstract.submitted_at.isoformat() if abstract.submitted_at else None
+            "submitted_at": abstract.submitted_at.isoformat() if abstract.submitted_at else None,
+            "conference": {
+                "id": abstract.conference.id if abstract.conference else None,
+                "title": abstract.conference.title if abstract.conference else None
+            } if abstract.conference else None
         } for abstract in current_user.submitted_abstracts]
-        
-        reviews = [{
-            "id": review.id,
-            "abstract_id": review.abstract_id,
-            "score": review.score,
-            "comments": review.comments,
-            "submitted_at": review.submitted_at.isoformat() if review.submitted_at else None
-        } for review in current_user.reviews] if current_user.role == "REVIEWER" else []
-        
-        # Get user's conferences (if they are an organizer)
+
+        # Conférences organisées
         conferences = []
-        if hasattr(current_user, 'organized_conferences'):
+        if hasattr(current_user, 'conferences'):
             conferences = [{
                 "id": conf.id,
                 "title": conf.title,
@@ -100,13 +124,34 @@ def get_profile(current_user: User = Depends(get_current_user), db: Session = De
                 "venue": conf.venue,
                 "thematic": conf.thematic,
                 "status": "active" if conf.deadline and conf.deadline > datetime.now().date() else "past"
-            } for conf in current_user.organized_conferences]
-        
-        # Initialize conference_count if it's None
-        if current_user.conference_count is None:
-            current_user.conference_count = len(conferences)
-            db.commit()
-        
+            } for conf in current_user.conferences]
+
+        # Reviews REÇUES sur les abstracts de l'utilisateur
+        received_reviews = []
+        for abstract in current_user.submitted_abstracts:
+            reviews_list = []
+            for review in getattr(abstract, "reviews", []):
+                reviews_list.append({
+                    "id": review.id,
+                    "decision": review.decision,
+                    "comment": review.comment,
+                    "rating": getattr(review, "rating", None),
+                    "reviewer": {
+                        "id": review.reviewer.id if review.reviewer else None,
+                        "fullname": review.reviewer.fullname if review.reviewer else None,
+                        "email": review.reviewer.email if review.reviewer else None
+                    } if review.reviewer else None
+                })
+            received_reviews.append({
+                "abstract_id": abstract.id,
+                "title": abstract.title,
+                "conference": {
+                    "id": abstract.conference.id if abstract.conference else None,
+                    "title": abstract.conference.title if abstract.conference else None
+                } if abstract.conference else None,
+                "reviews": reviews_list
+            })
+
         response_data = {
             "id": current_user.id,
             "fullname": current_user.fullname,
@@ -118,12 +163,12 @@ def get_profile(current_user: User = Depends(get_current_user), db: Session = De
             "conferences": conferences,
             "affiliation": current_user.affiliation,
             "first_name": current_user.first_name,
-            "last_name": current_user.last_name
+            "last_name": current_user.last_name,
+            "received_reviews": received_reviews,  # Pour le frontend si besoin
+            "abstracts_reviews": received_reviews  # Pour compatibilité avec l'existant
         }
-        
         print(f"Profile data prepared successfully")  # Debug log
         return response_data
-        
     except Exception as e:
         print(f"Error in get_profile: {str(e)}")  # Debug log
         print(f"Full traceback: {traceback.format_exc()}")  # Debug log

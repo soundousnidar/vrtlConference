@@ -1,4 +1,4 @@
-import api from '@/services/api';
+import api from '@/lib/api';
 import { Abstract } from '@/types/conference';
 
 export const abstractService = {

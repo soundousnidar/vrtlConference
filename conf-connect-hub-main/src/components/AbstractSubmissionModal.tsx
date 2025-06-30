@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -17,7 +17,8 @@ interface Author {
 interface AbstractSubmissionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (formData: FormData) => Promise<void>;
+  conferenceId: number;
+  onSubmit?: (formData: FormData) => Promise<void>;
   abstract?: Abstract;
   mode?: 'create' | 'edit';
 }
@@ -25,6 +26,7 @@ interface AbstractSubmissionModalProps {
 const AbstractSubmissionModal: React.FC<AbstractSubmissionModalProps> = ({
   isOpen,
   onClose,
+  conferenceId,
   onSubmit,
   abstract,
   mode = 'create'
@@ -77,12 +79,29 @@ const AbstractSubmissionModal: React.FC<AbstractSubmissionModalProps> = ({
       formData.append('summary', summary);
       formData.append('keywords', keywords);
       formData.append('authors', JSON.stringify(authors));
+      formData.append('conference_id', conferenceId.toString());
       
       if (file) {
         formData.append('file', file);
       }
 
-      await onSubmit(formData);
+      if (onSubmit) {
+        await onSubmit(formData);
+      } else {
+        // Default submission logic
+        const response = await fetch(`http://localhost:8001/abstracts/submit-abstract`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: formData
+        });
+        
+        if (!response.ok) {
+          throw new Error('Erreur lors de la soumission de l\'abstract');
+        }
+      }
+      
       onClose();
     } catch (error) {
       console.error('Error submitting abstract:', error);
@@ -99,6 +118,9 @@ const AbstractSubmissionModal: React.FC<AbstractSubmissionModalProps> = ({
             {mode === 'create' ? 'Soumettre un Abstract' : 'Modifier l\'Abstract'}
           </DialogTitle>
         </DialogHeader>
+        <DialogDescription>
+          Veuillez remplir le formulaire pour soumettre votre abstract.
+        </DialogDescription>
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <Label htmlFor="title">Titre</Label>

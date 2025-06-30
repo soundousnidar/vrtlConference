@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, User, Mail, Lock, Camera, CameraOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { toast } from "@/hooks/use-toast";
+import Navbar from '@/components/Navbar';
+import Footer from '@/components/Footer';
 
 const Register = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -39,7 +42,7 @@ const Register = () => {
     }
 
     try {
-      const response = await fetch("http://localhost:8000/auth/register", {
+      const response = await fetch("http://localhost:8001/auth/register", {
         method: "POST",
         body: formData,
       });
@@ -51,15 +54,22 @@ const Register = () => {
       }
 
       if (data.access_token) {
+        // Store ONLY the raw access_token (no Bearer prefix)
         localStorage.setItem("token", data.access_token);
+        localStorage.removeItem("access_token");
         localStorage.setItem("user", JSON.stringify(data.user));
-        
         toast({
           title: "Compte créé avec succès",
           description: "Votre compte a été créé et vous êtes maintenant connecté.",
         });
-
-        navigate('/', { replace: true });
+        const params = new URLSearchParams(location.search);
+        const conferenceId = params.get('conference_id');
+        if (conferenceId) {
+          navigate(`/reviewer/conference/${conferenceId}/abstracts`, { replace: true });
+        } else {
+          navigate('/', { replace: true });
+        }
+        window.location.reload();
       }
     } catch (error: any) {
       console.error("Erreur:", error);
@@ -75,7 +85,8 @@ const Register = () => {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <main className="flex-grow py-4">
+      <Navbar />
+      <main className="flex-1 py-4">
         <div className="container mx-auto px-4 max-w-md">
           {/* Back to home link */}
           <Link to="/" className="inline-flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors mb-4">
@@ -250,6 +261,7 @@ const Register = () => {
           </div>
         </div>
       </main>
+      <Footer />
     </div>
   );
 };

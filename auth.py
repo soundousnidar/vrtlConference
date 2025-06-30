@@ -48,7 +48,7 @@ def get_current_user(authorization: Optional[str] = Header(None), db: Session = 
     except PyJWTError:
         raise HTTPException(status_code=401, detail="Token invalide")
 
-@router.post("/login")
+@router.post("/login", operation_id="login_auth")
 async def login(
     email: str = Form(...),
     password: str = Form(...),

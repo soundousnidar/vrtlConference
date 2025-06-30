@@ -35,6 +35,8 @@ const UserProfile: React.FC = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedAbstract, setSelectedAbstract] = useState<Abstract | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [registrations, setRegistrations] = useState<any[]>([]);
+  const [abstractsReviews, setAbstractsReviews] = useState<any[]>([]);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -51,6 +53,13 @@ const UserProfile: React.FC = () => {
         const data = await profileService.getProfile();
         console.log('Profile data received:', data); // Debug log
         setProfileData(data);
+        // Ajoute la conférence à chaque abstract pour l'affichage du lien
+        const absWithConf = (data.abstracts_reviews || []).map((abs: any) => {
+          // Cherche la conférence dans profileData.abstracts
+          const found = (data.abstracts || []).find((a: any) => a.id === abs.abstract_id);
+          return { ...abs, conference: found?.conference };
+        });
+        setAbstractsReviews(absWithConf);
       } catch (error: any) {
         console.error('Error in fetchProfile:', error);
         
@@ -58,9 +67,10 @@ const UserProfile: React.FC = () => {
         if (error.message === 'Session expirée, veuillez vous reconnecter') {
           toast({
             title: "Session expirée",
-            description: "Veuillez vous reconnecter pour accéder à votre profil",
+            description: "Veuillez vous reconnecter pour accéder à votre profil. (Token manquant, expiré ou invalide)",
             variant: "destructive",
           });
+          console.error('[DEBUG] Session expired or invalid token.');
           navigate('/login', { state: { from: '/profile' } });
           return;
         }
@@ -100,19 +110,33 @@ const UserProfile: React.FC = () => {
     fetchInvitations();
   }, []);
 
-  const getStatusBadge = (status: AbstractStatus) => {
-    const statusConfig = {
-      [AbstractStatus.PENDING]: { label: "En attente", variant: "outline" as const },
-      [AbstractStatus.ACCEPTED]: { label: "Accepté", variant: "default" as const },
-      [AbstractStatus.REJECTED]: { label: "Rejeté", variant: "destructive" as const }
-    };
-    
-    const config = statusConfig[status];
-    return <Badge variant={config.variant}>{config.label}</Badge>;
+  useEffect(() => {
+    profileService.getRegistrations().then(setRegistrations).catch(() => setRegistrations([]));
+  }, []);
+
+  // Add refresh function for registrations
+  const refreshRegistrations = async () => {
+    try {
+      const data = await profileService.getRegistrations();
+      setRegistrations(data);
+    } catch (error) {
+      console.error('Error refreshing registrations:', error);
+      setRegistrations([]);
+    }
   };
 
-  const renderStars = (rating: number) => {
-    return "★".repeat(rating) + "☆".repeat(5 - rating);
+  const getStatusBadge = (status: AbstractStatus | string | undefined) => {
+    const statusConfig = {
+      PENDING: { label: "En attente", variant: "outline" as const },
+      ACCEPTED: { label: "Accepté", variant: "default" as const },
+      REJECTED: { label: "Rejeté", variant: "destructive" as const }
+    };
+    const normalizedStatus = (status || '').toUpperCase();
+    const config = statusConfig[normalizedStatus as AbstractStatus];
+    if (!config) {
+      return null;
+    }
+    return <Badge variant={config.variant}>{config.label}</Badge>;
   };
 
   const handleEditConference = (conference: Conference) => {
@@ -328,12 +352,13 @@ const UserProfile: React.FC = () => {
 
         {/* Contenu détaillé */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="overview">Vue d'ensemble</TabsTrigger>
             <TabsTrigger value="abstracts">Mes Abstracts</TabsTrigger>
             <TabsTrigger value="reviews">Mes Reviews</TabsTrigger>
             <TabsTrigger value="conferences">Mes Conférences</TabsTrigger>
-            <TabsTrigger value="reviewer">Reviews</TabsTrigger>
+            <TabsTrigger value="registrations">Inscriptions</TabsTrigger>
+            <TabsTrigger value="received_reviews">Reviews reçues</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-4">
@@ -348,7 +373,7 @@ const UserProfile: React.FC = () => {
                     <div key={abstract.id} className="border-l-4 border-blue-500 pl-4">
                       <div className="font-medium">{abstract.title}</div>
                       <div className="text-sm text-muted-foreground">
-                        {abstract.conference.title}
+                        {abstract.conference ? abstract.conference.title : 'Conférence inconnue'}
                       </div>
                       <div className="flex items-center gap-2 mt-1">
                         {getStatusBadge(abstract.status)}
@@ -369,15 +394,9 @@ const UserProfile: React.FC = () => {
                 <CardContent className="space-y-3">
                   {profileData.reviews?.slice(0, 3).map((review) => (
                     <div key={review.id} className="border-l-4 border-green-500 pl-4">
-                      <div className="font-medium">{review.abstract.title}</div>
+                      <div className="font-medium">{review.abstract?.title || 'Abstract inconnu'}</div>
                       <div className="text-sm text-muted-foreground">
-                        {review.abstract.conference.title}
-                      </div>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-yellow-500">{renderStars(review.rating)}</span>
-                        <span className="text-xs text-muted-foreground">
-                          Note: {review.rating}/5
-                        </span>
+                        {review.abstract?.conference ? review.abstract.conference.title : 'Conférence inconnue'}
                       </div>
                     </div>
                   ))}
@@ -387,49 +406,60 @@ const UserProfile: React.FC = () => {
           </TabsContent>
 
           <TabsContent value="abstracts" className="space-y-4">
-            {profileData.abstracts?.map((abstract) => (
-              <Card key={abstract.id}>
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <CardTitle className="text-lg">{abstract.title}</CardTitle>
-                      <p className="text-muted-foreground">{abstract.conference.title}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {getStatusBadge(abstract.status)}
-                      {abstract.status === AbstractStatus.PENDING && (
-                        <>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleEditAbstract(abstract)}
+            {profileData.abstracts?.filter(Boolean).map(abs => (
+              abs && (
+                <Card key={abs.id}>
+                  <CardHeader>
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <CardTitle className="text-lg">{abs.title}</CardTitle>
+                        {abs.conference && abs.conference.id ? (
+                          <a
+                            href={`/conferences/${abs.conference.id}`}
+                            className="text-blue-600 hover:underline text-sm mt-1 block"
                           >
-                            <Edit className="h-4 w-4 mr-1" />
-                            Modifier
-                          </Button>
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => handleDeleteAbstract(abstract)}
-                          >
-                            <Trash className="h-4 w-4 mr-1" />
-                            Supprimer
-                          </Button>
-                        </>
-                      )}
+                            {abs.conference.title}
+                          </a>
+                        ) : (
+                          <p className="text-muted-foreground">Conférence inconnue</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {getStatusBadge(abs.status)}
+                        {abs.status === AbstractStatus.PENDING && (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleEditAbstract(abs)}
+                            >
+                              <Edit className="h-4 w-4 mr-1" />
+                              Modifier
+                            </Button>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => handleDeleteAbstract(abs)}
+                            >
+                              <Trash className="h-4 w-4 mr-1" />
+                              Supprimer
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
-                    {abstract.summary}
-                  </p>
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>Mots-clés: {abstract.keywords}</span>
-                    <span>Soumis le {format(new Date(abstract.submitted_at), 'dd MMM yyyy', { locale: fr })}</span>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
+                      {abs.summary}
+                    </p>
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>Mots-clés: {abs.keywords}</span>
+                      <span>Soumis le {format(new Date(abs.submitted_at), 'dd MMM yyyy', { locale: fr })}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
             ))}
           </TabsContent>
 
@@ -439,13 +469,29 @@ const UserProfile: React.FC = () => {
                 <CardHeader>
                   <div className="flex items-start justify-between">
                     <div>
-                      <CardTitle className="text-lg">{review.abstract.title}</CardTitle>
-                      <p className="text-muted-foreground">{review.abstract.conference.title}</p>
+                      <CardTitle className="text-lg">{review.abstract?.title || 'Abstract inconnu'}</CardTitle>
+                      {review.abstract?.conference && review.abstract.conference.id && (
+                        <a
+                          href={`/conferences/${review.abstract.conference.id}`}
+                          className="text-blue-600 hover:underline text-sm mt-1 block"
+                        >
+                          {review.abstract.conference.title}
+                        </a>
+                      )}
                     </div>
-                    <div className="text-right">
-                      <div className="text-yellow-500 text-lg">{renderStars(review.rating)}</div>
-                      <div className="text-sm text-muted-foreground">Note: {review.rating}/5</div>
-                    </div>
+                    {/* Show edit button if user is the author of the abstract */}
+                    {review.abstract && review.abstract.user_id === profileData.id && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedAbstract(review.abstract);
+                          setIsEditModalOpen(true);
+                        }}
+                      >
+                        Modifier mon abstract
+                      </Button>
+                    )}
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -562,24 +608,138 @@ const UserProfile: React.FC = () => {
             )}
           </TabsContent>
 
-          <TabsContent value="reviewer" className="space-y-4">
-            {profileData.reviewer_conferences && profileData.reviewer_conferences.length > 0 ? (
-              profileData.reviewer_conferences.map((conference) => (
-                <ConferenceCard 
-                  key={conference.id} 
-                  conference={conference}
-                  showReviewButton={true}
-                />
-              ))
+          <TabsContent value="registrations" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="flex justify-between items-center">
+                  <CardTitle>Mes Inscriptions & Paiements</CardTitle>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={refreshRegistrations}
+                    className="flex items-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Actualiser
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm border rounded-lg overflow-hidden">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="px-4 py-2 text-left font-semibold">Conférence</th>
+                        <th className="px-4 py-2 text-left font-semibold">Frais</th>
+                        <th className="px-4 py-2 text-left font-semibold w-40">Statut</th>
+                        <th className="px-4 py-2 text-left font-semibold">Date inscription</th>
+                        <th className="px-4 py-2 text-left font-semibold">Paiements</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {registrations.map(reg => (
+                        <tr key={reg.registration_id} className="border-b last:border-b-0">
+                          <td className="px-4 py-2">{reg.conference.title}</td>
+                          <td className="px-4 py-2">{reg.conference.fees} DH</td>
+                          <td className="px-4 py-2 w-40 text-center align-middle">
+                            {reg.status === 'paid' || reg.status === 'completed' ? (
+                              <span className="inline-flex items-center gap-1 px-3 py-2 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
+                                ✓ Payé
+                              </span>
+                            ) : reg.status === 'cancelled' ? (
+                              <span className="inline-flex items-center gap-1 px-3 py-2 bg-red-100 text-red-700 rounded-full text-xs font-semibold">
+                                ✗ Annulé
+                              </span>
+                            ) : reg.status === 'pending' ? (
+                              <span className="inline-flex items-center gap-1 px-3 py-2 bg-yellow-100 text-yellow-700 rounded-full text-xs font-semibold">
+                                ⏳ En attente
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-3 py-2 bg-gray-100 text-gray-700 rounded-full text-xs font-semibold">
+                                {reg.status}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2">{new Date(reg.created_at).toLocaleDateString()}</td>
+                          <td className="px-4 py-2">
+                            {reg.payments.length === 0 ? (
+                              <span className="text-gray-400">Aucun</span>
+                            ) : (
+                              reg.payments.map((p: any, i: number) => (
+                                <div key={i} className="mb-1">
+                                  <span>{p.amount} DH</span> - <span>{p.status}</span> <span className="text-xs text-muted-foreground">({p.paid_at ? new Date(p.paid_at).toLocaleDateString() : ''})</span>
+                                </div>
+                              ))
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="received_reviews" className="space-y-4">
+            {abstractsReviews.length === 0 ? (
+              <Card><CardContent className="py-8 text-center">Aucune review reçue sur vos abstracts pour le moment.</CardContent></Card>
             ) : (
-              <Card>
-                <CardContent className="py-8 text-center">
-                  <div className="flex flex-col items-center gap-2">
-                    <ClipboardList className="h-8 w-8 text-muted-foreground" />
-                    <p className="text-muted-foreground">Vous n'êtes pas encore reviewer pour aucune conférence.</p>
-                  </div>
-                </CardContent>
-              </Card>
+              abstractsReviews.map(abs => (
+                <Card key={abs.abstract_id}>
+                  <CardHeader>
+                    <CardTitle>{abs.title}</CardTitle>
+                    {abs.conference && abs.conference.id && (
+                      <a
+                        href={`/conferences/${abs.conference.id}`}
+                        className="text-blue-600 hover:underline text-sm mt-1 block"
+                      >
+                        Voir la conférence : {abs.conference.title}
+                      </a>
+                    )}
+                  </CardHeader>
+                  <CardContent>
+                    {abs.reviews.length === 0 ? (
+                      <div className="text-muted-foreground">Aucune review reçue pour cet abstract.</div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-sm border rounded-lg overflow-hidden">
+                          <thead className="bg-gray-100">
+                            <tr>
+                              <th className="px-4 py-2 text-left font-semibold">Reviewer</th>
+                              <th className="px-4 py-2 text-left font-semibold w-40">Décision</th>
+                              <th className="px-4 py-2 text-left font-semibold">Commentaire</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {abs.reviews.map((rev: any) => (
+                              <tr key={rev.id} className="border-b last:border-b-0">
+                                <td className="px-4 py-2">
+                                  {rev.reviewer?.fullname || rev.reviewer?.email || <span className="italic text-gray-400">Inconnu</span>}
+                                </td>
+                                <td className="px-4 py-2 w-40 text-center align-middle">
+                                  {rev.decision === "ACCEPTED" ? (
+                                    <span className="inline-flex items-center gap-1 px-3 py-2 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
+                                      ✓ Accepté
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-3 py-2 bg-red-100 text-red-700 rounded-full text-xs font-semibold">
+                                      ✗ Refusé
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-2 whitespace-pre-line">{rev.comment}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))
             )}
           </TabsContent>
         </Tabs>
